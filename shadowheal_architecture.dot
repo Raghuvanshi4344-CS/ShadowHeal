@@ -1,0 +1,565 @@
+digraph ShadowHeal {
+    // ============================================================
+    //  GLOBAL SETTINGS
+    // ============================================================
+    rankdir=LR;
+    bgcolor="#0d1117";
+    fontname="Helvetica";
+    fontcolor="white";
+    compound=true;
+    nodesep=0.6;
+    ranksep=1.2;
+    pad=0.5;
+
+    node [
+        fontname="Helvetica"
+        fontsize=10
+        style="filled,rounded"
+        color="#30363d"
+        fontcolor="white"
+        penwidth=1.5
+    ];
+
+    edge [
+        fontname="Helvetica"
+        fontsize=8
+        fontcolor="#8b949e"
+        color="#58a6ff"
+        penwidth=1.2
+        arrowsize=0.8
+    ];
+
+    // ============================================================
+    //  LAYER 0: DEVELOPER'S MACHINE
+    // ============================================================
+    subgraph cluster_dev {
+        label="DEVELOPER'S MACHINE";
+        labeljust="l";
+        fontsize=14;
+        fontcolor="#f0883e";
+        style="dashed,rounded";
+        color="#f0883e";
+        bgcolor="#161b2266";
+
+        app [
+            label="Python Application\n(FastAPI / Django / Script)"
+            shape=box
+            fillcolor="#1f6feb"
+            color="#58a6ff"
+        ];
+
+        subgraph cluster_sdk {
+            label="ShadowHeal SDK  (pip install shadowheal)";
+            fontsize=10;
+            fontcolor="#7ee787";
+            style="rounded";
+            color="#238636";
+            bgcolor="#0d111766";
+
+            interceptor [
+                label="sys.excepthook\nInterceptor"
+                shape=box
+                fillcolor="#238636"
+                color="#3fb950"
+            ];
+
+            source_reader [
+                label="Source Reader\n(reads .py from disk)"
+                shape=box
+                fillcolor="#238636"
+                color="#3fb950"
+            ];
+
+            fingerprint_cache [
+                label="Fingerprint Cache\nSHA256 | in-memory dict\n60s TTL suppression"
+                shape=box
+                fillcolor="#238636"
+                color="#3fb950"
+            ];
+
+            terminal_ui [
+                label="Terminal Warning\n(Rich formatted output)"
+                shape=box
+                fillcolor="#238636"
+                color="#3fb950"
+            ];
+
+            transport [
+                label="Background Thread\nHTTP/2 POST | gzip\n3x retry + backoff"
+                shape=box
+                fillcolor="#238636"
+                color="#3fb950"
+            ];
+        }
+
+        cli [
+            label="CLI Commands\nshadowheal watch | list\nshadowheal explain | fix"
+            shape=box
+            fillcolor="#1f6feb"
+            color="#58a6ff"
+        ];
+
+        // Internal SDK flow
+        app -> interceptor [label="1. Crash!\nTypeError line 42" color="#f85149" fontcolor="#f85149"];
+        interceptor -> source_reader [label="2a. Extract\ntraceback paths" color="#3fb950"];
+        source_reader -> interceptor [label="2b. Return\nfile contents" color="#3fb950" style=dashed];
+        interceptor -> fingerprint_cache [label="2c. SHA256\nhash check" color="#3fb950"];
+        interceptor -> terminal_ui [label="3. Print\nwarning" color="#d2a8ff"];
+        interceptor -> transport [label="4. Fire &\nforget" color="#f0883e"];
+    }
+
+    // ============================================================
+    //  LAYER 2: PUBLIC SUBNET - NETWORK EDGE
+    // ============================================================
+    subgraph cluster_public {
+        label="CLOUD - PUBLIC SUBNET";
+        labeljust="l";
+        fontsize=14;
+        fontcolor="#58a6ff";
+        style="dashed,rounded";
+        color="#58a6ff";
+        bgcolor="#0d111766";
+
+        dns [
+            label="Route 53 (DNS)\napi.shadowheal.io\n-> 10.0.0.5"
+            shape=box
+            fillcolor="#1f6feb"
+            color="#58a6ff"
+        ];
+
+        alb [
+            label="Application Load Balancer\n10.0.0.5\n---------------------\nTLS Termination (ACM)\nSliding Window Rate Limit\n100 req/min/project\nRound-Robin Distribution\nHealth Check: GET /health 10s"
+            shape=box
+            fillcolor="#6e40c9"
+            color="#8957e5"
+        ];
+
+        api_gateway [
+            label="API Gateway (Nginx)\n10.0.0.8 | 2 CPU, 4 GB RAM\n--------------------------\n/v1/events/ingest -> Ingestion\n/v1/issues/*      -> Platform API\n/health           -> Health Check"
+            shape=box
+            fillcolor="#6e40c9"
+            color="#8957e5"
+        ];
+
+        subgraph cluster_ingestion {
+            label="Ingestion Service (Stateless, Horizontally Scalable)";
+            fontsize=9;
+            fontcolor="#79c0ff";
+            style="rounded";
+            color="#1f6feb";
+            bgcolor="#0d111766";
+
+            api1 [
+                label="FastAPI Instance 1\n10.0.3.10\n2 CPU | 4 GB RAM"
+                shape=box
+                fillcolor="#1f6feb"
+                color="#58a6ff"
+            ];
+            api2 [
+                label="FastAPI Instance 2\n10.0.3.11\n2 CPU | 4 GB RAM"
+                shape=box
+                fillcolor="#1f6feb"
+                color="#58a6ff"
+            ];
+            api3 [
+                label="FastAPI Instance 3\n10.0.3.12\n2 CPU | 4 GB RAM"
+                shape=box
+                fillcolor="#1f6feb"
+                color="#58a6ff"
+            ];
+        }
+
+        subgraph cluster_platform {
+            label="Platform API Service";
+            fontsize=9;
+            fontcolor="#79c0ff";
+            style="rounded";
+            color="#1f6feb";
+            bgcolor="#0d111766";
+
+            platform1 [
+                label="Platform API 1\n10.0.3.20\n2 CPU | 4 GB RAM\n---------------\nGET /v1/issues\nPOST /v1/issues/:id/fix\nWS /v1/ws/dashboard"
+                shape=box
+                fillcolor="#1f6feb"
+                color="#58a6ff"
+            ];
+            platform2 [
+                label="Platform API 2\n10.0.3.21\n2 CPU | 4 GB RAM"
+                shape=box
+                fillcolor="#1f6feb"
+                color="#58a6ff"
+            ];
+        }
+    }
+
+    // ============================================================
+    //  LAYER 3: PRIVATE SUBNET - REDIS CLUSTER
+    // ============================================================
+    subgraph cluster_redis {
+        label="Redis Cluster (ElastiCache)\n10.0.4.10-12 | 2 CPU, 8 GB RAM each";
+        labeljust="l";
+        fontsize=12;
+        fontcolor="#f85149";
+        style="dashed,rounded";
+        color="#f85149";
+        bgcolor="#1a0a0a66";
+
+        redis_master [
+            label="Redis Master\n10.0.4.10\n--------------\n- rate:proj_xxx (INCR)\n- apikey:proj_live_xxx\n- seen:<fingerprint>"
+            shape=cylinder
+            fillcolor="#da3633"
+            color="#f85149"
+        ];
+        redis_r1 [
+            label="Redis Replica 1\n10.0.4.11"
+            shape=cylinder
+            fillcolor="#da3633"
+            color="#f85149"
+        ];
+        redis_r2 [
+            label="Redis Replica 2\n10.0.4.12"
+            shape=cylinder
+            fillcolor="#da3633"
+            color="#f85149"
+        ];
+
+        redis_master -> redis_r1 [label="replication" style=dashed color="#f85149" fontcolor="#f85149"];
+        redis_master -> redis_r2 [label="replication" style=dashed color="#f85149" fontcolor="#f85149"];
+    }
+
+    // ============================================================
+    //  LAYER 3: PRIVATE SUBNET - KAFKA CLUSTER
+    // ============================================================
+    subgraph cluster_kafka {
+        label="Apache Kafka Cluster (Amazon MSK)\n10.0.2.20-22 | 4 CPU, 8 GB RAM, 200 GB SSD each";
+        labeljust="l";
+        fontsize=12;
+        fontcolor="#d29922";
+        style="dashed,rounded";
+        color="#d29922";
+        bgcolor="#1a150a66";
+
+        broker1 [
+            label="Broker 1\n10.0.2.20"
+            shape=box3d
+            fillcolor="#9e6a03"
+            color="#d29922"
+        ];
+        broker2 [
+            label="Broker 2\n10.0.2.21"
+            shape=box3d
+            fillcolor="#9e6a03"
+            color="#d29922"
+        ];
+        broker3 [
+            label="Broker 3\n10.0.2.22"
+            shape=box3d
+            fillcolor="#9e6a03"
+            color="#d29922"
+        ];
+
+        topic_raw [
+            label="Topic: shadowheal.events.raw\n6 Partitions | RF=3\nRetention: 72h\nKey: project_id"
+            shape=note
+            fillcolor="#633c01"
+            color="#d29922"
+        ];
+
+        topic_diag [
+            label="Topic: shadowheal.jobs.diagnose\n3 Partitions | RF=3\nRetention: 24h"
+            shape=note
+            fillcolor="#633c01"
+            color="#d29922"
+        ];
+
+        broker1 -> topic_raw [style=invis];
+        broker2 -> topic_raw [style=invis];
+        broker3 -> topic_diag [style=invis];
+    }
+
+    // ============================================================
+    //  LAYER 3: PRIVATE SUBNET - WORKER POOLS
+    // ============================================================
+    subgraph cluster_workers {
+        label="WORKER POOLS (Celery / Streaming Consumers)";
+        labeljust="l";
+        fontsize=14;
+        fontcolor="#79c0ff";
+        style="dashed,rounded";
+        color="#388bfd";
+        bgcolor="#0a1a2a66";
+
+        subgraph cluster_cg_a {
+            label="Consumer Group A - Aggregation (FAST)\nAuto-scale: min=2, max=12 | Trigger: Kafka lag > 10k";
+            fontsize=9;
+            fontcolor="#7ee787";
+            style="rounded";
+            color="#238636";
+            bgcolor="#0d111766";
+
+            cga1 [label="Worker 1\n10.0.5.10\n2 CPU | 4 GB" shape=box fillcolor="#238636" color="#3fb950"];
+            cga2 [label="Worker 2\n10.0.5.11\n2 CPU | 4 GB" shape=box fillcolor="#238636" color="#3fb950"];
+            cga3 [label="Worker 3\n10.0.5.12\n2 CPU | 4 GB" shape=box fillcolor="#238636" color="#3fb950"];
+        }
+
+        subgraph cluster_cg_b {
+            label="Consumer Group B - Blob Persistence (MEDIUM)";
+            fontsize=9;
+            fontcolor="#79c0ff";
+            style="rounded";
+            color="#1f6feb";
+            bgcolor="#0d111766";
+
+            cgb1 [label="Worker 1\n10.0.5.20\n2 CPU | 4 GB" shape=box fillcolor="#1f6feb" color="#58a6ff"];
+            cgb2 [label="Worker 2\n10.0.5.21\n2 CPU | 4 GB" shape=box fillcolor="#1f6feb" color="#58a6ff"];
+        }
+
+        subgraph cluster_cg_c {
+            label="Consumer Group C - AI Diagnosis (SLOW)\nAuto-scale: min=1, max=5 | Trigger: Kafka lag > 50";
+            fontsize=9;
+            fontcolor="#d2a8ff";
+            style="rounded";
+            color="#8957e5";
+            bgcolor="#0d111766";
+
+            cgc1 [label="AI Worker 1\n10.0.5.30\n4 CPU | 8 GB" shape=box fillcolor="#6e40c9" color="#8957e5"];
+            cgc2 [label="AI Worker 2\n10.0.5.31\n4 CPU | 8 GB" shape=box fillcolor="#6e40c9" color="#8957e5"];
+        }
+    }
+
+    // ============================================================
+    //  LAYER 4: AI ENGINE - LANGGRAPH
+    // ============================================================
+    subgraph cluster_ai {
+        label="LAYER 4: LangGraph AI Engine (Multi-Agent State Machine)";
+        labeljust="l";
+        fontsize=14;
+        fontcolor="#d2a8ff";
+        style="dashed,rounded";
+        color="#8957e5";
+        bgcolor="#1a0a2a66";
+
+        triage [
+            label="1. Triage Agent\nClassify severity\nModel: Gemini Flash\n~$0.001/req"
+            shape=box
+            fillcolor="#6e40c9"
+            color="#d2a8ff"
+        ];
+        context [
+            label="2. Context Agent\nFetch source from S3\n+ RAG from Vector DB\n(no LLM call)"
+            shape=box
+            fillcolor="#6e40c9"
+            color="#d2a8ff"
+        ];
+        diagnosis [
+            label="3. Diagnosis Agent\nRoot cause analysis\nPlain-language explain\nModel: Claude Sonnet\n~$0.02/req"
+            shape=box
+            fillcolor="#6e40c9"
+            color="#d2a8ff"
+        ];
+        eval_agent [
+            label="5. Evaluation Agent\nConfidence scoring\n>=70% -> PASS (write DB)\n<70% -> CIRCUIT BREAKER\nModel: Gemini Flash\n~$0.001/req"
+            shape=box
+            fillcolor="#6e40c9"
+            color="#d2a8ff"
+        ];
+        fix_agent [
+            label="4. Fix Agent\nHUMAN-GATED ONLY\nMax 5-line patch\nModel: Claude Opus\n~$0.05/req"
+            shape=box
+            fillcolor="#da3633"
+            color="#f85149"
+        ];
+        sandbox [
+            label="Sandbox Container\nEphemeral Docker /\nFirecracker microVM\n------------------\nNetwork Isolated\nStateless\nRuns: pytest"
+            shape=box
+            fillcolor="#1a1e24"
+            color="#f85149"
+            style="filled,dashed"
+        ];
+
+        triage -> context [label="classified" color="#d2a8ff"];
+        context -> diagnosis [label="assembled\ncontext" color="#d2a8ff"];
+        diagnosis -> eval_agent [label="diagnosis\nresult" color="#d2a8ff"];
+        fix_agent -> sandbox [label="draft patch" color="#f85149" fontcolor="#f85149"];
+        sandbox -> fix_agent [label="test result\npass/fail" color="#f85149" fontcolor="#f85149" style=dashed];
+    }
+
+    // ============================================================
+    //  LAYER 6: STORAGE
+    // ============================================================
+    subgraph cluster_storage {
+        label="DATA STORAGE LAYER";
+        labeljust="l";
+        fontsize=14;
+        fontcolor="#3fb950";
+        style="dashed,rounded";
+        color="#238636";
+        bgcolor="#0a1a0a66";
+
+        subgraph cluster_pg {
+            label="PostgreSQL Cluster (Amazon RDS)\n4 CPU, 16 GB RAM, 500 GB SSD each";
+            fontsize=10;
+            fontcolor="#3fb950";
+            style="rounded";
+            color="#238636";
+            bgcolor="#0d111766";
+
+            pg_primary [
+                label="PRIMARY (Writer)\n10.0.1.10\n------------------\nAccepts: INSERT,\nUPDATE, DELETE\n------------------\nTables:\n  projects (api_key IDX)\n  issues (fingerprint IDX)"
+                shape=cylinder
+                fillcolor="#238636"
+                color="#3fb950"
+            ];
+            pg_replica1 [
+                label="READ Replica 1\n10.0.1.11\n-------------\nAccepts: SELECT\nFrom: Platform API"
+                shape=cylinder
+                fillcolor="#196c2e"
+                color="#3fb950"
+            ];
+            pg_replica2 [
+                label="READ Replica 2\n10.0.1.12\n-------------\nAccepts: SELECT\nFrom: CLI queries"
+                shape=cylinder
+                fillcolor="#196c2e"
+                color="#3fb950"
+            ];
+
+            pg_primary -> pg_replica1 [label="async\nreplication\n<100ms lag" color="#3fb950" fontcolor="#3fb950" style=dashed];
+            pg_primary -> pg_replica2 [label="async\nreplication" color="#3fb950" fontcolor="#3fb950" style=dashed];
+        }
+
+        blob [
+            label="Blob Storage\nAWS S3 / MinIO\n-----------------\ns3://shadowheal-traces/\n<issue_id>.json\n-----------------\nRaw tracebacks +\nfull source files\nRetention: 90 days"
+            shape=folder
+            fillcolor="#0d4429"
+            color="#3fb950"
+        ];
+
+        vector_db [
+            label="Vector Database\nChromaDB / pgvector\n10.0.6.10\n4 CPU | 16 GB RAM\n-----------------\nRepo embeddings\n1536-dim vectors\nSemantic code search"
+            shape=cylinder
+            fillcolor="#0d4429"
+            color="#3fb950"
+        ];
+    }
+
+    // ============================================================
+    //  GITHUB INTEGRATION (Optional)
+    // ============================================================
+    subgraph cluster_github {
+        label="GITHUB INTEGRATION (Optional, Read-Only)";
+        fontsize=10;
+        fontcolor="#8b949e";
+        style="dashed,rounded";
+        color="#30363d";
+        bgcolor="#0d111766";
+
+        github_api [
+            label="GitHub OAuth API\nRead-Only Scopes\n------------------\nRepos, READMEs,\nFile tree import"
+            shape=box
+            fillcolor="#161b22"
+            color="#30363d"
+        ];
+    }
+
+    // ============================================================
+    //  FRONTEND
+    // ============================================================
+    subgraph cluster_frontend {
+        label="WEB DASHBOARD";
+        labeljust="l";
+        fontsize=14;
+        fontcolor="#f0883e";
+        style="dashed,rounded";
+        color="#f0883e";
+        bgcolor="#1a150a66";
+
+        dashboard [
+            label="React / Next.js Dashboard\napp.shadowheal.io\n----------------------\n/login     -> GitHub OAuth\n/dashboard -> Projects overview\n/project/:id -> Issues list\n/issue/:id   -> Diagnosis + Fix"
+            shape=box
+            fillcolor="#9e6a03"
+            color="#d29922"
+        ];
+    }
+
+    // ============================================================
+    //  CONNECTIONS (The Arrows - how everything talks)
+    // ============================================================
+
+    // SDK -> Cloud
+    transport -> dns [
+        label="5. HTTP/2 POST\n/v1/events/ingest\nX-API-Key header\ngzip body"
+        color="#f0883e"
+        fontcolor="#f0883e"
+        penwidth=2
+    ];
+
+    // DNS -> ALB -> Gateway -> API
+    dns -> alb [label="6. Resolve IP" color="#58a6ff"];
+    alb -> api_gateway [label="7. Forward\n(TLS terminated)" color="#8957e5"];
+    api_gateway -> api1 [label="/v1/events/\ningest" color="#58a6ff"];
+    api_gateway -> api2 [label="/v1/events/\ningest" color="#58a6ff"];
+    api_gateway -> api3 [label="/v1/events/\ningest" color="#58a6ff"];
+    api_gateway -> platform1 [label="/v1/issues/*" color="#58a6ff"];
+    api_gateway -> platform2 [label="/v1/issues/*" color="#58a6ff"];
+
+    // Ingestion -> Redis (auth + rate limit)
+    api1 -> redis_master [label="9a. Validate API key\n9b. INCR rate limit" color="#f85149"];
+    api2 -> redis_master [label="9a/9b" color="#f85149"];
+    api3 -> redis_master [label="9a/9b" color="#f85149"];
+
+    // Ingestion -> Kafka (produce events)
+    api1 -> topic_raw [label="10. PRODUCE\nkey=project_id" color="#d29922" fontcolor="#d29922" penwidth=2];
+    api2 -> topic_raw [label="10. PRODUCE" color="#d29922" fontcolor="#d29922"];
+    api3 -> topic_raw [label="10. PRODUCE" color="#d29922" fontcolor="#d29922"];
+
+    // Kafka -> Consumer Groups
+    topic_raw -> cga1 [label="12a. CONSUME" color="#3fb950" fontcolor="#3fb950" penwidth=2];
+    topic_raw -> cga2 [label="12a." color="#3fb950"];
+    topic_raw -> cga3 [label="12a." color="#3fb950"];
+    topic_raw -> cgb1 [label="12b. CONSUME\n(separate group)" color="#58a6ff"];
+    topic_raw -> cgb2 [label="12b." color="#58a6ff"];
+
+    // Group A -> Redis (dedup) + Postgres (upsert) + Kafka (new jobs)
+    cga1 -> redis_master [label="13. GET seen:<fp>" color="#f85149"];
+    cga1 -> pg_primary [label="14. UPSERT issue\nINSERT...ON CONFLICT\nUPDATE occurrence_count" color="#3fb950" fontcolor="#3fb950" penwidth=2];
+    cga1 -> topic_diag [label="15. If NEW fingerprint\nPRODUCE diagnosis job" color="#d29922" fontcolor="#d29922" style=bold];
+
+    // Group B -> Blob + Postgres
+    cgb1 -> blob [label="16. PUT raw JSON\ntraceback + source" color="#3fb950"];
+    cgb1 -> pg_primary [label="17. UPDATE\nblob_path = s3://..." color="#3fb950"];
+
+    // Kafka diagnosis -> AI Workers
+    topic_diag -> cgc1 [label="18. CONSUME\njob token" color="#d2a8ff" fontcolor="#d2a8ff" penwidth=2];
+    topic_diag -> cgc2 [label="18." color="#d2a8ff"];
+
+    // AI Workers -> LangGraph
+    cgc1 -> triage [label="19. Start\nLangGraph" color="#d2a8ff" lhead=cluster_ai];
+
+    // Context Agent -> Storage
+    context -> blob [label="21a. Fetch source\nsnapshot" color="#3fb950"];
+    context -> vector_db [label="21b. RAG semantic\nsearch (optional)" color="#3fb950" style=dashed];
+
+    // Eval -> Postgres (write result)
+    eval_agent -> pg_primary [label="24. Write diagnosis\nstatus=diagnosed" color="#3fb950" fontcolor="#3fb950" penwidth=2];
+
+    // Platform API -> Postgres (reads) + Dashboard (WebSocket)
+    platform1 -> pg_replica1 [label="SQL SELECT\n(read path)" color="#3fb950"];
+    platform2 -> pg_replica2 [label="SQL SELECT" color="#3fb950"];
+    platform1 -> dashboard [label="WebSocket push\nreal-time updates" color="#d29922" fontcolor="#d29922" penwidth=2];
+    dashboard -> platform1 [label="HTTPS GET/POST" color="#f0883e" style=dashed];
+
+    // CLI -> Platform API
+    cli -> platform1 [
+        label="shadowheal list -> GET /v1/issues\nshadowheal explain -> GET /v1/issues/:id\nshadowheal fix -> POST /v1/issues/:id/fix"
+        color="#f0883e"
+        fontcolor="#f0883e"
+    ];
+
+    // Fix flow: Platform -> Fix Agent -> back
+    platform1 -> fix_agent [label="Trigger fix\n(human-gated)" color="#f85149" fontcolor="#f85149" style=dashed];
+    fix_agent -> platform1 [label="28. Return\npatch suggestion" color="#f85149" style=dashed];
+
+    // GitHub -> Vector DB + Postgres
+    github_api -> vector_db [label="Index repo files\ninto embeddings" color="#8b949e" style=dashed];
+    github_api -> pg_primary [label="Import project\nmetadata" color="#8b949e" style=dashed];
+}
