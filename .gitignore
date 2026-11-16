@@ -1,2 +1,4 @@
 .env
 ShadowHeal_Blueprint.pdf
+__pycache__/
+*.py[cod]
