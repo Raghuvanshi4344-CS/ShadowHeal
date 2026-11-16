@@ -1,4 +1,17 @@
+# Environment variables
 .env
-ShadowHeal_Blueprint.pdf
+
+# Virtual environment
+.venv/
+
+# Python bytecode
 __pycache__/
 *.py[cod]
+*$py.class
+
+# Pytest cache
+.pytest_cache/
+
+# Project documentation & reference assets
+ShadowHeal_Blueprint.pdf
+bin/
