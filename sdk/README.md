@@ -11,7 +11,7 @@ The SDK provides three Layer 1 transport primitives:
 ```python
 from shadowheal_sdk import ErrorReporter
 
-reporter = ErrorReporter("http://localhost:8000/api/errors")
+reporter = ErrorReporter("http://127.0.0.1:8000/v1/events/ingest")
 try:
     ...
 except Exception as error:
