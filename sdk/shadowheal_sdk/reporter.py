@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import queue
 import threading
-import urllib.error
 import urllib.request
 from collections.abc import Callable, Mapping
 from typing import Any
@@ -73,8 +72,10 @@ class ErrorReporter:
             if self._closed:
                 return
             self._closed = True
-        self._queue.join()
-        self._queue.put(None)
+        try:
+            self._queue.put(None, timeout=timeout)
+        except queue.Full as exc:
+            self._notify_error(exc)
         self._thread.join(timeout)
 
     def _run(self) -> None:
@@ -88,19 +89,26 @@ class ErrorReporter:
                 self._queue.task_done()
 
     def _send(self, payload: dict[str, Any]) -> None:
-        body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
-        request = urllib.request.Request(
-            self._endpoint_url,
-            data=body,
-            headers={"Content-Type": "application/json"},
-            method="POST",
-        )
         try:
+            body = json.dumps(
+                payload,
+                ensure_ascii=False,
+                default=str,
+            ).encode("utf-8")
+            request = urllib.request.Request(
+                self._endpoint_url,
+                data=body,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
             with urllib.request.urlopen(request, timeout=self._timeout):
                 pass
-        except (OSError, urllib.error.URLError) as exc:
+        except Exception as exc:
             self._notify_error(exc)
 
     def _notify_error(self, error: Exception) -> None:
         if self._error_handler is not None:
-            self._error_handler(error)
+            try:
+                self._error_handler(error)
+            except Exception:
+                pass

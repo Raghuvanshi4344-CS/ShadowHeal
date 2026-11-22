@@ -19,3 +19,12 @@ except Exception as error:
 finally:
     reporter.close()
 ```
+
+For global unhandled-exception capture:
+
+```python
+from shadowheal_sdk import ErrorReporter, install_excepthook
+
+reporter = ErrorReporter("http://localhost:8000/api/errors")
+install_excepthook(reporter)
+```
